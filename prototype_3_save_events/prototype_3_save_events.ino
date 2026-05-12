@@ -38,8 +38,8 @@ LIBRARIES
 // SELECT DEVICE NAME
 // =====================================================
 
-//#define MY_NAME "ECHO_BOUNCE_001"
-//#define MY_NAME "ECHO_SHY_001"
+// #define MY_NAME "ECHO_BOUNCE_001"
+// #define MY_NAME "ECHO_SHY_001"
 #define MY_NAME "ECHO_MESSY_001"
 
 #define STATION_NAME "ECHO_station_001"
@@ -118,6 +118,9 @@ File logFile;
 unsigned long lastDebugPrint = 0;
 
 const unsigned long DEVICE_TIMEOUT = 5000;
+
+bool dockLatched = false;
+bool uploadCompletedThisDock = false;
 
 // =====================================================
 // UTILS
@@ -281,6 +284,32 @@ void logEncounter(
   f.close();
 }
 
+bool hasEncounterData() {
+  if (!LittleFS.exists("/encounter.csv")) return false;
+
+  File f = LittleFS.open("/encounter.csv", "r");
+  if (!f) return false;
+
+  size_t size = f.size();
+  f.close();
+
+  return size > 0;
+}
+
+// Blocking getResults() ends -> onScanEnd -> start(0,false) clears scan results before return.
+static volatile bool sBlockingStationScan = false;
+
+struct BlockingStationScanGuard {
+  BlockingStationScanGuard() { sBlockingStationScan = true; }
+  ~BlockingStationScanGuard() { sBlockingStationScan = false; }
+};
+
+static void resumeEchoAdvertising() {
+  if (pAdvertising == nullptr) return;
+  delay(30);
+  pAdvertising->start();
+}
+
 // =====================================================
 // BLE SCAN CALLBACK
 // =====================================================
@@ -351,6 +380,10 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
   }
 
   void onScanEnd(const NimBLEScanResults& results, int reason) override {
+
+    if (sBlockingStationScan) {
+      return;
+    }
 
     if (pScan != nullptr) {
       pScan->start(0, false, true);
@@ -561,74 +594,148 @@ void uploadMemoryToStation() {
   Serial.println("=== DOCKED ===");
   Serial.println("Searching station...");
 
-  pScan->stop();
+  BlockingStationScanGuard blockGuard;
+
+  // C3 등: 광고 중에는 스캔 결과가 비는 경우가 많음 → 스테이션 검색 전에 광고 정지
+  if (pAdvertising != nullptr) {
+    pAdvertising->stop();
+    delay(120);
+  }
+
+  if (pScan != nullptr) {
+    pScan->stop();
+    delay(200);
+  }
 
   NimBLEScan* scan = NimBLEDevice::getScan();
 
-  NimBLEScanResults results = scan->start(5);
+  scan->clearResults();
+  scan->setMaxResults(64);
+  scan->setActiveScan(true);   // scan response (이름·128bit UUID) 수신
+  scan->setInterval(100);
+  scan->setWindow(99);
+  scan->setDuplicateFilter(0); // 도킹 스캔에서는 동일 기기 재보고 허용
+
+  // is_continue=false: 이전 결과 비우고 새로 스캔
+  NimBLEScanResults results = scan->getResults(12000, false);
+
+  Serial.print("Scan count: ");
+  Serial.println(results.getCount());
 
   for (int i = 0; i < results.getCount(); i++) {
+    const NimBLEAdvertisedDevice* dev = results.getDevice(i);
+    if (dev == nullptr) continue;
 
-    NimBLEAdvertisedDevice dev =
-      results.getDevice(i);
+    String name = "";
 
-    String name = dev.getName().c_str();
+    std::string n = dev->getName();
+    if (!n.empty()) name = String(n.c_str());
 
-    if (name != STATION_NAME) continue;
+    if (name.length() == 0 && dev->haveManufacturerData()) {
+      std::string m = dev->getManufacturerData();
+      name = String(m.c_str());
+    }
 
-    Serial.println("Station found");
+    NimBLEUUID echoSvc("12345678-1234-1234-1234-1234567890ab");
+    bool isStationByName = (name == STATION_NAME);
+    bool isStationByService = dev->isAdvertisingService(echoSvc);
 
-    NimBLEClient* client =
-      NimBLEDevice::createClient();
+    if (!isStationByName && !isStationByService) {
+      continue;
+    }
 
-    if (!client->connect(&dev)) {
+    if (name.length() > 0) {
+      Serial.print("Found station candidate: [");
+      Serial.print(name);
+      Serial.print("] byService=");
+      Serial.print(isStationByService ? "yes" : "no");
+      Serial.print(" RSSI=");
+      Serial.print(dev->getRSSI());
+      Serial.print(" addr=");
+      Serial.println(dev->getAddress().toString().c_str());
+    } else {
+      Serial.println("Found station candidate: (no name) by 128-bit service UUID in adv");
+    }
 
+    Serial.println("Station found — connecting...");
+
+    NimBLEClient* client = NimBLEDevice::createClient();
+
+    if (!client->connect(dev)) {
       Serial.println("Connect failed");
+      NimBLEDevice::deleteClient(client);
+      scan->clearResults();
+      pScan->setActiveScan(false);
+      pScan->setInterval(45);
+      pScan->setWindow(45);
+      pScan->setDuplicateFilter(1);
+      pScan->start(0, false, true);
+      resumeEchoAdvertising();
       return;
     }
 
     Serial.println("Connected");
 
     NimBLERemoteService* service =
-      client->getService(
-        "12345678-1234-1234-1234-1234567890ab"
-      );
+      client->getService("12345678-1234-1234-1234-1234567890ab");
 
     if (!service) {
+      Serial.println("Service not found");
       client->disconnect();
+      NimBLEDevice::deleteClient(client);
+      scan->clearResults();
+      pScan->setActiveScan(false);
+      pScan->setInterval(45);
+      pScan->setWindow(45);
+      pScan->setDuplicateFilter(1);
+      pScan->start(0, false, true);
+      resumeEchoAdvertising();
       return;
     }
 
     NimBLERemoteCharacteristic* ch =
-      service->getCharacteristic(
-        "abcd1234-5678-1234-5678-abcdef123456"
-      );
+      service->getCharacteristic("abcd1234-5678-1234-5678-abcdef123456");
 
     if (!ch) {
+      Serial.println("Characteristic not found");
       client->disconnect();
+      NimBLEDevice::deleteClient(client);
+      scan->clearResults();
+      pScan->setActiveScan(false);
+      pScan->setInterval(45);
+      pScan->setWindow(45);
+      pScan->setDuplicateFilter(1);
+      pScan->start(0, false, true);
+      resumeEchoAdvertising();
       return;
     }
 
-    File f =
-      LittleFS.open("/encounter.csv", "r");
+    File f = LittleFS.open("/encounter.csv", "r");
 
     if (!f) {
+      Serial.println("No encounter.csv");
       client->disconnect();
+      NimBLEDevice::deleteClient(client);
+      scan->clearResults();
+      pScan->setActiveScan(false);
+      pScan->setInterval(45);
+      pScan->setWindow(45);
+      pScan->setDuplicateFilter(1);
+      pScan->start(0, false, true);
+      resumeEchoAdvertising();
       return;
     }
 
     ch->writeValue("BEGIN_UPLOAD");
-
     delay(100);
 
     while (f.available()) {
+      String line = f.readStringUntil('\n');
 
-      String line =
-        f.readStringUntil('\n');
-
-      ch->writeValue(line.c_str());
-
-      delay(25);
+      if (line.length() > 0) {
+        ch->writeValue(line.c_str());
+        delay(25);
+      }
     }
 
     ch->writeValue("END_UPLOAD");
@@ -636,20 +743,38 @@ void uploadMemoryToStation() {
     f.close();
 
     client->disconnect();
+    NimBLEDevice::deleteClient(client);
 
     Serial.println("Upload complete");
 
-    // CLEAR MEMORY
     LittleFS.remove("/encounter.csv");
-
     Serial.println("CSV cleared");
 
-    ESP.restart();
+    uploadCompletedThisDock = true;
+
+    scan->clearResults();
+
+    pScan->setActiveScan(false);
+    pScan->setInterval(45);
+    pScan->setWindow(45);
+    pScan->setDuplicateFilter(1);
+    pScan->start(0, false, true);
+
+    resumeEchoAdvertising();
+    return;
   }
 
   Serial.println("Station not found");
 
+  scan->clearResults();
+
+  pScan->setActiveScan(false);
+  pScan->setInterval(45);
+  pScan->setWindow(45);
+  pScan->setDuplicateFilter(1);
   pScan->start(0, false, true);
+
+  resumeEchoAdvertising();
 }
 
 // =====================================================
@@ -704,7 +829,6 @@ void setup() {
 
   delay(1000);
 
-  Serial.println();
   Serial.println("========================");
   Serial.println("ECHO PERSONALITY SYSTEM");
   Serial.println("========================");
@@ -734,11 +858,36 @@ void setup() {
 void loop() {
 
   // DOCK DETECT
-  if (digitalRead(REED_PIN) == LOW) {
+  bool docked = digitalRead(REED_PIN) == LOW;
 
-    uploadMemoryToStation();
+  // 처음 도킹되는 순간에만 실행
+  if (docked && !dockLatched) {
+    dockLatched = true;
+    uploadCompletedThisDock = false;
 
-    delay(1000);
+    Serial.println("Dock detected");
+
+    if (hasEncounterData()) {
+      uploadMemoryToStation();
+    } else {
+      Serial.println("No encounter data to upload");
+      uploadCompletedThisDock = true;
+    }
+  }
+
+  // 도킹 상태가 유지되는 동안에는 다시 업로드하지 않음
+  if (docked && uploadCompletedThisDock) {
+    renderAudio();
+    delay(100);
+    return;
+  }
+
+  // Echo를 스테이션에서 떼면 다음 도킹 준비
+  if (!docked && dockLatched) {
+    dockLatched = false;
+    uploadCompletedThisDock = false;
+
+    Serial.println("Undocked");
   }
 
   cleanupDevices();
@@ -797,7 +946,6 @@ void loop() {
 
   if (now - lastDebugPrint > 1000) {
     lastDebugPrint = now;
-    Serial.println();
   }
 
   renderAudio();
