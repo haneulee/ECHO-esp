@@ -35,14 +35,23 @@ LIBRARIES
 #include <math.h>
 
 // =====================================================
-// SELECT DEVICE NAME
+// UNIQUE MODEL NAME (this device)
 // =====================================================
+// Set exactly one string: used as BLE advertised name, CSV device_name (MY_NAME),
+// and sent to the Raspberry Pi in ECHO_JSON_META as "uniqueDeviceName".
+//
+// #define ECHO_UNIQUE_MODEL_NAME "ECHO_BOUNCE_001"
+// #define ECHO_UNIQUE_MODEL_NAME "ECHO_SHY_001"
+#define ECHO_UNIQUE_MODEL_NAME "ECHO_MESSY_001"
 
-// #define MY_NAME "ECHO_BOUNCE_001"
-// #define MY_NAME "ECHO_SHY_001"
-#define MY_NAME "ECHO_MESSY_001"
+#define MY_NAME ECHO_UNIQUE_MODEL_NAME
 
 #define STATION_NAME "ECHO_station_001"
+
+// Web signup / EchoDevice.id (normalize: uppercase, no spaces). Defaults to MY_NAME for dev builds.
+#ifndef ECHO_UNIT_CODE
+#define ECHO_UNIT_CODE MY_NAME
+#endif
 
 // =====================================================
 // HARDWARE
@@ -728,6 +737,19 @@ void uploadMemoryToStation() {
 
     ch->writeValue("BEGIN_UPLOAD");
     delay(100);
+
+    {
+      String model = "unknown";
+      if (String(ECHO_UNIQUE_MODEL_NAME).indexOf("BOUNCE") >= 0) model = "bounce";
+      else if (String(ECHO_UNIQUE_MODEL_NAME).indexOf("SHY") >= 0) model = "shy";
+      else if (String(ECHO_UNIQUE_MODEL_NAME).indexOf("MESSY") >= 0) model = "messy";
+
+      String meta = String("ECHO_JSON_META:{\"v\":1,\"uniqueDeviceName\":\"") + String(ECHO_UNIQUE_MODEL_NAME) +
+                    "\",\"echoUnitCode\":\"" + String(ECHO_UNIT_CODE) +
+                    "\",\"bleDeviceName\":\"" + String(MY_NAME) + "\",\"echoModelType\":\"" + model + "\"}";
+      ch->writeValue(meta.c_str());
+      delay(50);
+    }
 
     while (f.available()) {
       String line = f.readStringUntil('\n');
