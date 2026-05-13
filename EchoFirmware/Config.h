@@ -78,7 +78,7 @@
 // AUDIO
 // =====================================================
 
-#define AUDIO_GAIN 0.5f
+#define AUDIO_GAIN 0.25f
 
 #define SAMPLE_RATE 22050
 #define BUFFER_SIZE 128
