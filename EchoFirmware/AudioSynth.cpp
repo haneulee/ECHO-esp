@@ -16,12 +16,6 @@ float freq2 = 441.0f;
 float lowpassState = 0.0f;
 float cutoff = 1400.0f;
 
-// Second LP stage + Plantasia-style smoothing (file-local)
-static float gLowpass2 = 0.0f;
-static float gFcSmoothed = 1400.0f;
-static float gEnvVis = 0.0f;
-static float gVibratoPhase = 0.0f;
-
 unsigned long nextNoteTime = 0;
 
 float delayBuffer[DELAY_SIZE];
@@ -30,67 +24,7 @@ int delayIndex = 0;
 float delayWet = 0.15f;
 float delayFeedback = 0.22f;
 
-// =====================================================
-// Peer timbre (Tone: sprout→BOUNCE, moss→SHY, fern→MESSY)
-// 0 = MY_NAME timbre; 1 sprout; 2 moss; 3 fern
-// =====================================================
-
-static uint8_t gPeerRenderPreset = 0;
-
-static bool sSwingLong = false;
-
-static uint8_t gStepSprout = 0;
-static uint8_t gStepMoss = 0;
-static uint8_t gStepFern = 0;
-
-static const float kPlantasiaBpm = 76.0f;
-static const float kSecPerBeat = 60.0f / kPlantasiaBpm;
-
-static unsigned long schedulePlantIntervalMs(
-  uint8_t preset,
-  float c
-) {
-
-  float swing =
-    sSwingLong
-      ? 1.16f
-      : 0.84f;
-
-  sSwingLong = !sSwingLong;
-
-  float beats = 1.0f;
-
-  if (preset == 1) {
-
-    beats = 0.5f;
-  }
-
-  // Far: long gaps; close: short gaps (dominates over swing for clear distance feel)
-  float tempoFromClose =
-    1.50f * (1.0f - c) +
-    0.62f * c;
-
-  float baseMs =
-    kSecPerBeat *
-    beats *
-    swing *
-    1.08f *
-    1000.0f;
-
-  float ms = baseMs * tempoFromClose;
-
-  // Less jitter when close — rhythm tightens like Tone "locking in"
-  float jitterScale =
-    1.0f - c * 0.55f;
-
-  ms += (float)random(-55, 56) * jitterScale;
-
-  if (ms < 140.0f) {
-    ms = 140.0f;
-  }
-
-  return (unsigned long)ms;
-}
+int gArpTriggerIndex = 0;
 
 // =====================================================
 // ECHO STATE GLOBALS
@@ -142,12 +76,6 @@ void setupI2S() {
   );
 
   i2s_zero_dma_buffer(I2S_NUM_0);
-
-  gFcSmoothed = cutoff;
-  lowpassState = 0.0f;
-  gLowpass2 = 0.0f;
-  gEnvVis = 0.0f;
-  gVibratoPhase = 0.0f;
 }
 
 // =====================================================
@@ -157,7 +85,7 @@ void setupI2S() {
 float personalityRootMidi() {
 
   if (String(MY_NAME).indexOf("BOUNCE") >= 0) {
-    return 72.0f;
+    return 67.0f;
   }
 
   if (String(MY_NAME).indexOf("SHY") >= 0) {
@@ -169,6 +97,287 @@ float personalityRootMidi() {
   }
 
   return 60.0f;
+}
+
+// =====================================================
+// PLANTASIA-STYLE ARPEGGIO MODEL
+// =====================================================
+
+struct SoundPersonality {
+  float env;
+  float envDecay;
+  float baseCutoff;
+  float closenessCutoff;
+  float delayWet;
+  float delayFeedback;
+  unsigned long rateMs;
+
+  int steps[10];
+  int stepCount;
+
+  float rhythm[10];
+  int rhythmCount;
+
+  int scale[9];
+  int scaleCount;
+
+  int progression[5];
+  int progressionCount;
+};
+
+const SoundPersonality BOUNCE_SOUND = {
+  0.58f,
+  0.9962f,
+  1350.0f,
+  1650.0f,
+  0.18f,
+  0.34f,
+  320,
+  {0, 2, 1, 3, 4, 2, 5, 3, 0, 0},
+  8,
+  {0.72f, 0.56f, 1.12f, 0.64f, 0.82f, 0.52f, 1.28f, 0.58f, 1.0f, 1.0f},
+  8,
+  {0, 2, 4, 7, 9, 12, 14, 16, 0},
+  8,
+  {0, 7, 9, 4, 0},
+  4
+};
+
+const SoundPersonality SHY_SOUND = {
+  0.36f,
+  0.9988f,
+  560.0f,
+  620.0f,
+  0.36f,
+  0.34f,
+  840,
+  {0, 1, 2, 1, 0, 3, 2, 1, 0, 0},
+  8,
+  {1.25f, 0.90f, 1.55f, 1.05f, 1.40f, 0.95f, 1.70f, 1.10f, 1.0f, 1.0f},
+  8,
+  {0, 2, 4, 7, 9, 12, 14, 0, 0},
+  7,
+  {0, 4, 9, 7, 0},
+  4
+};
+
+const SoundPersonality MESSY_SOUND = {
+  0.50f,
+  0.9958f,
+  1150.0f,
+  1550.0f,
+  0.28f,
+  0.34f,
+  260,
+  {0, 3, 1, 5, 2, 6, 4, 7, 1, 4},
+  10,
+  {0.62f, 0.38f, 0.94f, 0.44f, 0.70f, 0.36f, 1.08f, 0.48f, 0.82f, 0.40f},
+  10,
+  {0, 2, 3, 5, 7, 9, 10, 12, 14},
+  9,
+  {0, 5, 10, 7, 3},
+  5
+};
+
+const SoundPersonality& soundForType(String type) {
+  if (type == "BOUNCE") return BOUNCE_SOUND;
+  if (type == "SHY") return SHY_SOUND;
+  return MESSY_SOUND;
+}
+
+uint32_t hashArp(
+  int triggerIndex,
+  int salt
+) {
+  uint32_t h = 2166136261UL;
+  const char* name = MY_NAME;
+
+  while (*name) {
+    h ^= (uint8_t)(*name);
+    h *= 16777619UL;
+    name++;
+  }
+
+  h ^= (uint32_t)triggerIndex * 374761393UL;
+  h *= 16777619UL;
+  h ^= (uint32_t)salt * 668265263UL;
+  h *= 16777619UL;
+
+  return h;
+}
+
+float unitArp(
+  int triggerIndex,
+  int salt
+) {
+  return (hashArp(triggerIndex, salt) & 0xFFFFFF) / 16777215.0f;
+}
+
+int nearestScaleSemi(
+  int semi,
+  const SoundPersonality& p
+) {
+  int octave = (semi / 12) * 12;
+  int normalized = semi % 12;
+  if (normalized < 0) normalized += 12;
+
+  int best = octave + p.scale[0];
+  int bestDistance = abs(best - (octave + normalized));
+
+  for (int i = 1; i < p.scaleCount; i++) {
+    int candidate = octave + p.scale[i];
+    int dist = abs(candidate - (octave + normalized));
+    if (dist < bestDistance) {
+      best = candidate;
+      bestDistance = dist;
+    }
+  }
+
+  return best;
+}
+
+float richnessFromCloseness(
+  float closeness
+) {
+  float c =
+    clampf(
+      (closeness - 0.08f) / 0.82f,
+      0.0f,
+      1.0f
+    );
+
+  return c * c * (3.0f - 2.0f * c);
+}
+
+int richnessLiftSemi(
+  const SoundPersonality& p,
+  String type,
+  int semi,
+  int triggerIndex,
+  float richness
+) {
+  if (richness < 0.48f) {
+    return semi;
+  }
+
+  float chance =
+    unitArp(triggerIndex, 53);
+
+  if (chance > richness) {
+    return semi;
+  }
+
+  int lift = 7;
+
+  if (type == "BOUNCE") {
+    lift = 12;
+  }
+  else if (type == "MESSY") {
+    lift = chance > 0.5f ? 4 : 7;
+  }
+
+  return nearestScaleSemi(
+    semi + lift,
+    p
+  );
+}
+
+int harmonySemi(
+  const SoundPersonality& p,
+  String type,
+  int semi,
+  int triggerIndex,
+  float richness
+) {
+  if (richness < 0.38f) {
+    return semi;
+  }
+
+  int interval = 7;
+
+  if (type == "BOUNCE") {
+    interval = 12;
+  }
+  else if (type == "MESSY") {
+    interval =
+      unitArp(triggerIndex, 59) > 0.5f ? 4 : 7;
+  }
+
+  return nearestScaleSemi(
+    semi + interval,
+    p
+  );
+}
+
+int phraseSemi(
+  const SoundPersonality& p,
+  String type,
+  int triggerIndex,
+  float richness
+) {
+  int phraseIndex = triggerIndex / 8;
+  int phraseStep = triggerIndex % 8;
+
+  int progressionRoot =
+    p.progression[phraseIndex % p.progressionCount];
+
+  int stepIndex =
+    p.steps[phraseStep % p.stepCount];
+
+  int motifSemi =
+    gMelodySemi[stepIndex % MELODY_SLOTS];
+
+  if (richness < 0.22f) {
+    return nearestScaleSemi(
+      progressionRoot + motifSemi,
+      p
+    );
+  }
+
+  int randomDegree =
+    (int)(unitArp(triggerIndex, 11) * p.scaleCount);
+  if (randomDegree >= p.scaleCount) randomDegree = p.scaleCount - 1;
+
+  int contour = 0;
+  if (phraseStep == 3 || phraseStep == 6) {
+    contour = 1;
+  }
+  else if (phraseStep != 0 && unitArp(triggerIndex, 17) > 0.68f) {
+    contour = -1;
+  }
+
+  int scaleSemi =
+    p.scale[(randomDegree + phraseStep + contour + p.scaleCount) % p.scaleCount];
+
+  int blended =
+    unitArp(triggerIndex, 23) > 0.42f
+      ? scaleSemi
+      : nearestScaleSemi(motifSemi, p);
+
+  int octave = 0;
+  if (type == "BOUNCE" && phraseStep > 4 && richness > 0.44f) {
+    octave = 12;
+  }
+  else if (type == "MESSY" && phraseStep > 4 && richness > 0.38f) {
+    octave = 12;
+  }
+  else if (type == "SHY" && phraseStep == 7 && richness < 0.34f) {
+    octave = -12;
+  }
+
+  int semi =
+    nearestScaleSemi(
+      progressionRoot + blended + octave,
+      p
+    );
+
+  return richnessLiftSemi(
+    p,
+    type,
+    semi,
+    triggerIndex,
+    richness
+  );
 }
 
 // =====================================================
@@ -206,7 +415,7 @@ void initEchoMelodyState() {
 }
 
 // =====================================================
-// PERSONALITY SYNTH (neighbor BLE type → Tone plant voices)
+// PERSONALITY SYNTH
 // =====================================================
 
 void triggerPersonality(
@@ -214,200 +423,123 @@ void triggerPersonality(
   float closeness
 ) {
 
-  float c = clampf(closeness, 0.0f, 1.0f);
+  const SoundPersonality& p =
+    soundForType(type);
 
-  uint8_t preset = 0;
+  float root = personalityRootMidi();
+  float richness =
+    richnessFromCloseness(closeness);
+
+  int semi =
+    phraseSemi(
+      p,
+      type,
+      gArpTriggerIndex,
+      richness
+    );
+
+  int harmony =
+    harmonySemi(
+      p,
+      type,
+      semi,
+      gArpTriggerIndex,
+      richness
+    );
 
   if (type == "BOUNCE") {
 
-    preset = 1;
+    freq1 =
+      midiToFreq(root + (float)semi);
+
+    freq2 =
+      richness > 0.38f
+        ? midiToFreq(root + (float)harmony)
+        : freq1 * 1.004f;
+
+    env =
+      p.env * (0.58f + richness * 0.42f);
+
+    envDecay = p.envDecay;
+
+    cutoff =
+      p.baseCutoff + closeness * p.closenessCutoff;
+
+    delayWet =
+      clampf(p.delayWet * (0.55f + richness * 0.72f), 0.06f, 0.34f);
   }
 
   else if (type == "SHY") {
 
-    preset = 2;
+    freq1 =
+      midiToFreq(root + (float)semi);
+
+    freq2 =
+      richness > 0.42f
+        ? midiToFreq(root + (float)harmony)
+        : freq1 * 1.001f;
+
+    env =
+      p.env * (0.54f + richness * 0.46f);
+
+    envDecay = p.envDecay;
+
+    cutoff =
+      p.baseCutoff + closeness * p.closenessCutoff;
+
+    delayWet =
+      clampf(p.delayWet * (0.62f + richness * 0.55f), 0.10f, 0.42f);
   }
 
   else if (type == "MESSY") {
 
-    preset = 3;
+    freq1 =
+      midiToFreq(root + (float)semi);
+
+    freq2 =
+      richness > 0.36f
+        ? midiToFreq(root + (float)harmony)
+        : freq1 *
+          (0.98f + (int)(unitArp(gArpTriggerIndex, 31) * 20.0f) * 0.001f);
+
+    env =
+      p.env * (0.56f + richness * 0.44f);
+
+    envDecay = p.envDecay;
+
+    cutoff =
+      p.baseCutoff +
+      (closeness * 0.72f + unitArp(gArpTriggerIndex, 37) * 0.28f) *
+      p.closenessCutoff;
+
+    delayWet =
+      clampf(p.delayWet * (0.58f + richness * 0.68f), 0.08f, 0.42f);
   }
 
-  if (preset == 0) {
+  delayFeedback =
+    clampf(p.delayFeedback * (0.62f + richness * 0.58f), 0.16f, 0.46f);
 
-    gPeerRenderPreset = 0;
+  float rhythm =
+    p.rhythm[gArpTriggerIndex % p.rhythmCount];
 
-    nextNoteTime =
-      millis() +
-      600UL;
+  long humanize =
+    (long)((unitArp(gArpTriggerIndex, 41) - 0.5f) *
+      (type == "MESSY" ? 80.0f : 35.0f));
 
-    return;
-  }
+  float distanceRate =
+    1.62f - richness * 0.72f;
 
-  float prob = 0.0f;
+  long interval =
+    (long)(p.rateMs * rhythm * distanceRate) + humanize;
 
-  if (preset == 1) {
-
-    prob = 0.06f + c * 0.90f;
-  }
-
-  else if (preset == 2) {
-
-    prob = 0.10f + c * 0.82f;
-  }
-
-  else {
-
-    prob = 0.05f + c * 0.88f;
+  if (interval < 120) {
+    interval = 120;
   }
 
   nextNoteTime =
-    millis() +
-    schedulePlantIntervalMs(preset, c);
+    millis() + (unsigned long)interval;
 
-  if ((float)random(0, 10000) / 10000.0f >= prob) {
-
-    return;
-  }
-
-  gPeerRenderPreset = preset;
-
-  if (preset == 1) {
-
-    // Sprout (BOUNCE): 8n-ish grid, saw lead, C4 contour
-    static const int mel[] = {
-      60, 64, 67, 69, 67, 64, 62, 60
-    };
-
-    static const int var[] = {
-      62, 64, 67, 69
-    };
-
-    int midi =
-      random(0, 1000) < 780
-        ? mel[gStepSprout % 8]
-        : var[random(0, 4)];
-
-    gStepSprout++;
-
-    float detCents =
-      ((float)random(0, 1000) / 1000.0f - 0.5f) *
-      5.0f;
-
-    float f0 =
-      midiToFreq((float)midi) *
-      powf(2.0f, detCents / 1200.0f);
-
-    freq1 = f0;
-
-    freq2 =
-      f0 *
-      powf(2.0f, 1.2f / 1200.0f);
-
-    env = 0.82f;
-
-    envDecay =
-      c > 0.68f
-        ? 0.9922f
-        : 0.9948f - (c * 0.00055f);
-
-    cutoff =
-      800.0f + c * 1350.0f +
-      (float)random(-85, 86);
-
-    cutoff = clampf(cutoff, 500.0f, 11000.0f);
-
-    delayWet = 0.12f;
-    delayFeedback = 0.16f;
-  }
-
-  else if (preset == 2) {
-
-    // Moss (SHY): same contour as Tone C2 line, transposed to C6 (very high pipe / recorder)
-    static const int mel[] = {
-      84, 91, 93, 91, 88, 93, 86, 93
-    };
-
-    static const int varHi[] = {
-      84, 88, 91, 93, 96
-    };
-
-    int midi =
-      random(0, 1000) < 860
-        ? mel[gStepMoss % 8]
-        : varHi[random(0, 5)];
-
-    gStepMoss++;
-
-    freq1 = midiToFreq((float)midi);
-
-    freq2 =
-      freq1 *
-      1.0015f;
-
-    env = 0.74f;
-
-    envDecay =
-      0.9975f - c * 0.00085f;
-
-    cutoff =
-      5200.0f + c * 4200.0f +
-      (float)random(-120, 121);
-
-    cutoff = clampf(cutoff, 2000.0f, 14000.0f);
-
-    delayWet = 0.06f;
-    delayFeedback = 0.10f;
-  }
-
-  else {
-
-    // Fern (MESSY): 4n grid, detuned saws + noise
-    static const int mel[] = {
-      55, 57, 60, 62, 60, 57, 55, 52
-    };
-
-    static const int mid[] = {
-      48, 50, 52, 55, 57, 60
-    };
-
-    int midi =
-      random(0, 1000) < 740
-        ? mel[gStepFern % 8]
-        : mid[random(0, 6)];
-
-    gStepFern++;
-
-    float detCents =
-      ((float)random(0, 1000) / 1000.0f - 0.5f) *
-      6.0f;
-
-    float f0 =
-      midiToFreq((float)midi) *
-      powf(2.0f, detCents / 1200.0f);
-
-    freq1 = f0;
-
-    freq2 =
-      f0 *
-      powf(2.0f, 6.5f / 1200.0f);
-
-    env = 0.80f;
-
-    envDecay =
-      (c > 0.65f)
-        ? 0.9932f - (c - 0.65f) * 0.004f
-        : 0.9948f - c * 0.0006f;
-
-    cutoff =
-      650.0f + c * 1100.0f +
-      (float)random(-90, 91);
-
-    cutoff = clampf(cutoff, 400.0f, 9500.0f);
-
-    delayWet = 0.14f;
-    delayFeedback = 0.15f;
-  }
+  gArpTriggerIndex++;
 }
 
 // =====================================================
@@ -420,116 +552,52 @@ void renderAudio() {
 
   for (int i = 0; i < BUFFER_SIZE; i++) {
 
-    gVibratoPhase += 2.05f / (float)SAMPLE_RATE;
-
-    if (gVibratoPhase >= 1.0f) {
-      gVibratoPhase -= 1.0f;
-    }
-
-    float vb =
-      sinf(gVibratoPhase * TWO_PI) *
-      0.0042f;
-
-    if (gPeerRenderPreset == 2) {
-
-      vb *= 1.38f;
-    }
-
-    else if (gPeerRenderPreset == 1) {
-
-      vb *= 1.20f;
-    }
-
-    else if (gPeerRenderPreset == 3) {
-
-      vb *= 1.06f;
-    }
-
-    float f1 = freq1 * (1.0f + vb);
-    float f2 = freq2 * (1.0f - 0.62f * vb);
-
     float dry = 0.0f;
 
-    if (gPeerRenderPreset == 1) {
+    if (String(MY_NAME).indexOf("BOUNCE") >= 0) {
 
-      float a = waveSprout(phase1, 0.58f);
-      float b = waveSprout(phase2, 0.30f) * 0.34f;
-      float edge = waveSaw(phase1) * 0.075f;
+      float s1 = waveTriangle(phase1);
+      float s2 = waveSine(phase2);
 
-      dry = a * 0.70f + b + edge;
+      dry = s1 * 0.62f + s2 * 0.38f;
     }
 
-    else if (gPeerRenderPreset == 2) {
+    else if (String(MY_NAME).indexOf("SHY") >= 0) {
 
-      float r1 = waveRecorder(phase1, 0.64f);
-      float r2 = waveRecorder(phase2, 0.36f) * 0.30f;
+      float s1 = waveSine(phase1);
+      float s2 = waveTriangle(phase2);
 
-      dry = r1 * 0.78f + r2;
-    }
-
-    else if (gPeerRenderPreset == 3) {
-
-      float a = waveFern(phase1, 0.56f);
-      float b = waveFern(phase2, 0.38f) * 0.36f;
-
-      dry = a * 0.74f + b;
+      dry = s1 * 0.88f + s2 * 0.12f;
     }
 
     else {
 
-      if (String(MY_NAME).indexOf("BOUNCE") >= 0) {
+      float s1 = waveSaw(phase1);
+      float s2 = waveTriangle(phase2);
+      float s3 = waveSine((phase1 + phase2) * 0.5f);
 
-        float a = waveSprout(phase1, 0.52f);
-        float b = waveSprout(phase2, 0.28f) * 0.32f;
+      float n = waveNoise() * 0.035f;
 
-        dry = a * 0.72f + b + waveSaw(phase1) * 0.065f;
-      }
-
-      else if (String(MY_NAME).indexOf("SHY") >= 0) {
-
-        float r1 = waveRecorder(phase1, 0.58f);
-        float r2 = waveRecorder(phase2, 0.34f) * 0.28f;
-
-        dry = r1 * 0.76f + r2;
-      }
-
-      else {
-
-        float a = waveFern(phase1, 0.52f);
-        float b = waveFern(phase2, 0.35f) * 0.34f;
-
-        dry = a * 0.73f + b;
-      }
+      dry = s1 * 0.26f + s2 * 0.36f + s3 * 0.28f + n;
     }
 
-    gEnvVis +=
-      (env - gEnvVis) *
-      0.092f;
+    dry *= env;
 
-    dry *= gEnvVis;
-
-    advancePhase(phase1, f1);
-    advancePhase(phase2, f2);
+    advancePhase(phase1, freq1);
+    advancePhase(phase2, freq2);
 
     env *= envDecay;
 
-    gFcSmoothed +=
-      0.040f *
-      (cutoff - gFcSmoothed);
-
     float alpha =
       1.0f -
-      expf(-2.0f * PI * gFcSmoothed / SAMPLE_RATE);
+      expf(-2.0f * PI * cutoff / SAMPLE_RATE);
 
     alpha = clampf(alpha, 0.001f, 0.95f);
 
     lowpassState +=
       alpha * (dry - lowpassState);
 
-    gLowpass2 +=
-      alpha * (lowpassState - gLowpass2);
-
-    float filtered = gLowpass2;
+    float filtered = lowpassState;
 
     float delayed =
       delayBuffer[delayIndex];
@@ -547,7 +615,7 @@ void renderAudio() {
       delayIndex = 0;
     }
 
-    out = tanhf(out * 1.62f);
+    out = tanhf(out * 1.35f);
 
     int16_t sample =
       (int16_t)(

@@ -106,6 +106,10 @@ void loop() {
       }
     }
 
+    if (closeness <= 0.02f) {
+      continue;
+    }
+
     if (now >= nextNoteTime) {
 
       triggerPersonality(

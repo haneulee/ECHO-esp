@@ -16,12 +16,6 @@ float waveTriangle(float p);
 
 float waveSaw(float p);
 
-float waveRecorder(float p, float breath);
-
-float waveSprout(float p, float breath);
-
-float waveFern(float p, float breath);
-
 float waveNoise();
 
 void advancePhase(float &p, float freq);
