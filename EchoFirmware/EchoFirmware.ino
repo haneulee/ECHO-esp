@@ -60,6 +60,17 @@ void loop() {
 
   updateDockLogic();
 
+  if (dockLatched) {
+
+    renderAudio();
+
+    delay(
+      uploadCompletedThisDock ? 100 : 10
+    );
+
+    return;
+  }
+
   cleanupDevices();
 
   unsigned long now =

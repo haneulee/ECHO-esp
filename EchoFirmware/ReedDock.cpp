@@ -69,6 +69,7 @@ void updateDockLogic() {
   static bool gReedAllowDock = false;
 
   static uint16_t reedDockConsecLoops = 0;
+  static uint16_t reedOpenConsecLoops = 0;
 
   bool pastArm =
     (gDockSenseReadyMs == 0) ||
@@ -80,9 +81,12 @@ void updateDockLogic() {
     reedOpenSince = 0;
     gReedAllowDock = false;
     reedDockConsecLoops = 0;
+    reedOpenConsecLoops = 0;
   }
 
   else if (rawDocked) {
+
+    reedOpenConsecLoops = 0;
 
     const bool redockCooldown =
       (gPostUndockNoRedockUntilMs != 0) &&
@@ -128,11 +132,18 @@ void updateDockLogic() {
 
     reedDockConsecLoops = 0;
 
-    if (reedOpenSince == 0) {
-      reedOpenSince = now;
+    if (reedOpenConsecLoops < 0xFFFF) {
+      reedOpenConsecLoops++;
     }
 
-    reedDockedSince = 0;
+    if (reedOpenConsecLoops >= REED_UNDOCK_CONSEC_LOOPS) {
+
+      if (reedOpenSince == 0) {
+        reedOpenSince = now;
+      }
+
+      reedDockedSince = 0;
+    }
   }
 
   bool undockedStable =
@@ -208,6 +219,14 @@ void updateDockLogic() {
 
     Serial.println("=== DOCKED ===");
     Serial.println("Dock detected");
+
+    clearAllTrackedEchoPeers();
+
+    if (pScan != nullptr) {
+
+      pScan->stop();
+      pScan->clearResults();
+    }
 
     saveEchoStateToFs();
 

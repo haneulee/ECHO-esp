@@ -99,6 +99,23 @@ void restoreEchoBlePeerScan(
 
   pScan->clearResults();
 
+  if (
+    dockLatched &&
+    (
+      reason == nullptr ||
+      strcmp(reason, "undock") != 0
+    )
+  ) {
+
+    if (reason != nullptr) {
+
+      Serial.print("BLE peer scan paused while docked: ");
+      Serial.println(reason);
+    }
+
+    return;
+  }
+
   pScan->setActiveScan(false);
 
   pScan->setInterval(45);
@@ -126,6 +143,10 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
   void onResult(
     const NimBLEAdvertisedDevice* advertisedDevice
   ) override {
+
+    if (dockLatched) {
+      return;
+    }
 
     std::string devNameStd =
       advertisedDevice->getName();
@@ -222,7 +243,7 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
     int reason
   ) override {
 
-    if (sBlockingStationScan) {
+    if (sBlockingStationScan || dockLatched) {
       return;
     }
 
