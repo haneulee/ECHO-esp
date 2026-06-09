@@ -128,18 +128,6 @@ void loop() {
       }
     }
 
-    if (closeness <= 0.02f) {
-      continue;
-    }
-
-    if (now >= nextNoteTime) {
-
-      triggerPersonality(
-        devices[i].type,
-        closeness
-      );
-    }
-
     if (now - lastDebugPrint > 1000) {
 
       Serial.print(devices[i].name);
@@ -181,6 +169,8 @@ void loop() {
   if (now - lastDebugPrint > 1000) {
     lastDebugPrint = now;
   }
+
+  updatePeerAudio(now);
 
   updateEchoLed(now);
 

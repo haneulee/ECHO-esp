@@ -266,7 +266,7 @@ void tryEvolutionForDevice(int idx) {
   if (devices[idx].type == "BOUNCE") {
 
     static const int p[] =
-      {0, 4, 7, 9, 7, 4, 2, 0};
+      {0, 4, 7, 4, 9, 7, 4, 0};
 
     pool = p;
     plen = 8;
@@ -275,16 +275,16 @@ void tryEvolutionForDevice(int idx) {
   else if (devices[idx].type == "SHY") {
 
     static const int p[] =
-      {0, 2, 4, 7, 4, 2};
+      {0, 3, 5, 7, 5, 3, 0, 0};
 
     pool = p;
-    plen = 6;
+    plen = 8;
   }
 
   else if (devices[idx].type == "MESSY") {
 
     static const int p[] =
-      {0, 1, 5, 7, 10, 3, 8, 2};
+      {0, 1, 3, 6, 10, 8, 5, 2};
 
     pool = p;
     plen = 8;
@@ -299,43 +299,62 @@ void tryEvolutionForDevice(int idx) {
     plen = 4;
   }
 
-  int pi = 0;
-
-  if (plen >= 2) {
-
-    pi = random(0, plen - 1);
-
-    if (pi > plen - 2) {
-      pi = plen - 2;
-    }
-  }
+  int pi = random(0, plen);
 
   int orig0 = pool[pi];
-  int orig1 = pool[pi + 1];
+  int orig1 = pool[(pi + 1) % plen];
 
-  int ins =
-    random(0, MELODY_SLOTS - 1);
+  int ins = random(0, MELODY_SLOTS);
 
-  int trans0 =
-    (orig0 + 2) % 12;
+  int transpose =
+    random(0, 2) == 0 ? 1 : -1;
 
-  int trans1 =
-    (orig1 + 1) % 12;
+  int trans0 = orig0 + transpose;
 
-  gMelodySemi[ins] =
-    trans0;
+  if (trans0 < 0) {
+    trans0 += 12;
+  }
 
-  gMelodySemi[(ins + 1) % MELODY_SLOTS] =
-    trans1;
+  if (trans0 > 12) {
+    trans0 -= 12;
+  }
 
-  gBrightness =
-    clampf(gBrightness + 0.03f, 0.0f, 1.0f);
+  int trans1 = trans0;
 
-  gCalmness =
-    clampf(gCalmness - 0.02f, 0.0f, 1.0f);
+  gMelodySemi[ins] = trans0;
 
-  gDensityBias =
-    clampf(gDensityBias + 0.02f, 0.0f, 1.0f);
+  if (devices[idx].type == "SHY") {
+
+    gCalmness =
+      clampf(gCalmness + 0.018f, 0.0f, 1.0f);
+
+    gBrightness =
+      clampf(gBrightness - 0.008f, 0.0f, 1.0f);
+  }
+
+  else if (devices[idx].type == "BOUNCE") {
+
+    gBrightness =
+      clampf(gBrightness + 0.015f, 0.0f, 1.0f);
+
+    gDensityBias =
+      clampf(gDensityBias + 0.012f, 0.0f, 1.0f);
+  }
+
+  else if (devices[idx].type == "MESSY") {
+
+    gDensityBias =
+      clampf(gDensityBias + 0.018f, 0.0f, 1.0f);
+
+    gCalmness =
+      clampf(gCalmness - 0.012f, 0.0f, 1.0f);
+  }
+
+  else {
+
+    gBrightness =
+      clampf(gBrightness + 0.010f, 0.0f, 1.0f);
+  }
 
   unsigned long durSec =
     (

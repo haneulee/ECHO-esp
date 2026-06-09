@@ -8,10 +8,12 @@
 
 void setupI2S();
 
-void triggerPersonality(
-  String type,
-  float closeness
-);
+// Schedule + trigger notes for each nearby peer (never self).
+void updatePeerAudio(unsigned long now);
+
+bool hasAudiblePeers();
+
+void resetPeerVoice(int slot);
 
 void renderAudio();
 

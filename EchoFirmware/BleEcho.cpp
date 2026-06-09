@@ -1,4 +1,5 @@
 #include "BleEcho.h"
+#include "AudioSynth.h"
 
 // =====================================================
 // BLE GLOBALS
@@ -58,6 +59,10 @@ void clearDevice(int i) {
   devices[i].lastSeen = 0;
   devices[i].veryCloseStartMs = 0;
   devices[i].evolutionDoneForSession = false;
+  devices[i].nextNoteMs = 0;
+  devices[i].arpTriggerIndex = 0;
+
+  resetPeerVoice(i);
 }
 
 void clearAllTrackedEchoPeers() {
@@ -220,6 +225,8 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
 
     devices[freeIdx].veryCloseStartMs = 0;
     devices[freeIdx].evolutionDoneForSession = false;
+    devices[freeIdx].nextNoteMs = 0;
+    devices[freeIdx].arpTriggerIndex = 0;
 
     Serial.print("NEW ECHO: ");
     Serial.print(name);

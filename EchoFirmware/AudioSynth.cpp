@@ -1,4 +1,6 @@
 #include "AudioSynth.h"
+#include "Globals.h"
+#include "ReedDock.h"
 
 // =====================================================
 // AUDIO GLOBALS
@@ -85,18 +87,85 @@ void setupI2S() {
 float personalityRootMidi() {
 
   if (String(MY_NAME).indexOf("BOUNCE") >= 0) {
-    return 67.0f;
-  }
-
-  if (String(MY_NAME).indexOf("SHY") >= 0) {
     return 60.0f;
   }
 
+  if (String(MY_NAME).indexOf("SHY") >= 0) {
+    return 56.0f;
+  }
+
   if (String(MY_NAME).indexOf("MESSY") >= 0) {
-    return 55.0f;
+    return 88.0f;
   }
 
   return 60.0f;
+}
+
+struct PeerVoiceState {
+  float phase1;
+  float phase2;
+  float freq1;
+  float freq2;
+  float env;
+  float envDecay;
+  float cutoff;
+  float lowpassState;
+  float mixGain;
+  String voiceType;
+};
+
+static PeerVoiceState gPeerVoice[MAX_DEVICES];
+
+static int gFocusSlot = -1;
+static unsigned long gFocusTurnStartMs = 0;
+
+static int gAudibleSlots[MAX_DEVICES];
+static int gAudibleCount = 0;
+
+static float rootMidiForType(String type) {
+
+  if (type == "BOUNCE") {
+    return 60.0f;
+  }
+
+  if (type == "SHY") {
+    return 56.0f;
+  }
+
+  if (type == "MESSY") {
+    return 88.0f;
+  }
+
+  return 60.0f;
+}
+
+static int factoryMelodySemi(
+  String type,
+  int slot
+) {
+
+  slot %= MELODY_SLOTS;
+
+  if (type == "BOUNCE") {
+
+    static const int m[] =
+      {0, 4, 7, 4, 9, 7, 4, 0};
+
+    return m[slot];
+  }
+
+  if (type == "SHY") {
+
+    static const int m[] =
+      {0, 3, 5, 7, 5, 3, 0, 0};
+
+    return m[slot];
+  }
+
+  static const int m[] =
+    {0, 2, 4, 7, 9, 11, 7, 4};
+
+  return m[slot];
 }
 
 // =====================================================
@@ -126,56 +195,56 @@ struct SoundPersonality {
 };
 
 const SoundPersonality BOUNCE_SOUND = {
-  0.58f,
-  0.9962f,
-  1350.0f,
-  1650.0f,
-  0.18f,
-  0.34f,
-  320,
-  {0, 2, 1, 3, 4, 2, 5, 3, 0, 0},
+  0.78f,
+  0.9860f,
+  780.0f,
+  620.0f,
+  0.10f,
+  0.22f,
+  240,
+  {0, 2, 0, 4, 2, 5, 3, 1, 0, 0},
   8,
-  {0.72f, 0.56f, 1.12f, 0.64f, 0.82f, 0.52f, 1.28f, 0.58f, 1.0f, 1.0f},
+  {0.32f, 0.28f, 0.72f, 0.30f, 0.34f, 0.78f, 0.32f, 0.36f, 1.0f, 1.0f},
   8,
-  {0, 2, 4, 7, 9, 12, 14, 16, 0},
-  8,
-  {0, 7, 9, 4, 0},
+  {0, 2, 4, 7, 9, 12, 0, 0},
+  6,
+  {0, 4, 7, 5, 0},
   4
 };
 
 const SoundPersonality SHY_SOUND = {
   0.36f,
-  0.9988f,
-  560.0f,
-  620.0f,
-  0.36f,
+  0.9986f,
+  820.0f,
+  480.0f,
   0.34f,
-  840,
-  {0, 1, 2, 1, 0, 3, 2, 1, 0, 0},
+  0.28f,
+  880,
+  {0, 1, 0, 2, 1, 0, 3, 2, 0, 0},
   8,
-  {1.25f, 0.90f, 1.55f, 1.05f, 1.40f, 0.95f, 1.70f, 1.10f, 1.0f, 1.0f},
+  {1.35f, 1.15f, 1.65f, 1.25f, 1.50f, 1.10f, 1.80f, 1.30f, 1.0f, 1.0f},
   8,
-  {0, 2, 4, 7, 9, 12, 14, 0, 0},
-  7,
-  {0, 4, 9, 7, 0},
+  {0, 3, 5, 7, 10, 12, 0, 0},
+  6,
+  {0, 5, 10, 7, 0},
   4
 };
 
 const SoundPersonality MESSY_SOUND = {
-  0.50f,
-  0.9958f,
-  1150.0f,
-  1550.0f,
-  0.28f,
-  0.34f,
-  260,
-  {0, 3, 1, 5, 2, 6, 4, 7, 1, 4},
+  0.44f,
+  0.9938f,
+  3600.0f,
+  1100.0f,
+  0.06f,
+  0.14f,
+  78,
+  {0, 2, 1, 4, 2, 5, 3, 6, 1, 4},
   10,
-  {0.62f, 0.38f, 0.94f, 0.44f, 0.70f, 0.36f, 1.08f, 0.48f, 0.82f, 0.40f},
+  {0.20f, 0.17f, 0.34f, 0.18f, 0.24f, 0.15f, 0.38f, 0.19f, 0.28f, 0.16f},
   10,
-  {0, 2, 3, 5, 7, 9, 10, 12, 14},
+  {0, 2, 4, 7, 9, 11, 12, 14, 16},
   9,
-  {0, 5, 10, 7, 3},
+  {0, 4, 7, 11, 9},
   5
 };
 
@@ -313,7 +382,8 @@ int phraseSemi(
   const SoundPersonality& p,
   String type,
   int triggerIndex,
-  float richness
+  float richness,
+  bool useSelfMelody
 ) {
   int phraseIndex = triggerIndex / 8;
   int phraseStep = triggerIndex % 8;
@@ -324,8 +394,12 @@ int phraseSemi(
   int stepIndex =
     p.steps[phraseStep % p.stepCount];
 
-  int motifSemi =
-    gMelodySemi[stepIndex % MELODY_SLOTS];
+  int motifSemi = useSelfMelody
+    ? gMelodySemi[stepIndex % MELODY_SLOTS]
+    : factoryMelodySemi(
+        type,
+        stepIndex
+      );
 
   if (richness < 0.22f) {
     return nearestScaleSemi(
@@ -358,11 +432,11 @@ int phraseSemi(
   if (type == "BOUNCE" && phraseStep > 4 && richness > 0.44f) {
     octave = 12;
   }
-  else if (type == "MESSY" && phraseStep > 4 && richness > 0.38f) {
-    octave = 12;
+  else if (type == "MESSY" && phraseStep > 5 && richness > 0.58f) {
+    octave = 7;
   }
   else if (type == "SHY" && phraseStep == 7 && richness < 0.34f) {
-    octave = -12;
+    octave = 0;
   }
 
   int semi =
@@ -388,226 +462,471 @@ void initEchoMelodyState() {
 
   if (String(MY_NAME).indexOf("BOUNCE") >= 0) {
 
-    int m[] = {0, 4, 7, 9, 7, 4, 2, 0};
+    int m[] = {0, 4, 7, 4, 9, 7, 4, 0};
 
     for (int k = 0; k < MELODY_SLOTS; k++) {
       gMelodySemi[k] = m[k];
     }
+
+    gBrightness = 0.58f;
+    gCalmness = 0.42f;
+    gDensityBias = 0.54f;
   }
 
   else if (String(MY_NAME).indexOf("SHY") >= 0) {
 
-    int m[] = {0, 2, 4, 7, 4, 2, 0, 0};
+    int m[] = {0, 3, 5, 7, 5, 3, 0, 0};
 
     for (int k = 0; k < MELODY_SLOTS; k++) {
       gMelodySemi[k] = m[k];
     }
+
+    gBrightness = 0.40f;
+    gCalmness = 0.88f;
+    gDensityBias = 0.26f;
   }
 
   else {
 
-    int m[] = {0, 1, 5, 7, 10, 3, 8, 2};
+    int m[] = {0, 1, 3, 6, 10, 8, 5, 2};
 
     for (int k = 0; k < MELODY_SLOTS; k++) {
       gMelodySemi[k] = m[k];
     }
+
+    gBrightness = 0.54f;
+    gCalmness = 0.34f;
+    gDensityBias = 0.66f;
+  }
+
+  for (int i = 0; i < MAX_DEVICES; i++) {
+    resetPeerVoice(i);
   }
 }
 
-// =====================================================
-// PERSONALITY SYNTH
-// =====================================================
+void resetPeerVoice(int slot) {
 
-void triggerPersonality(
-  String type,
-  float closeness
+  if (slot < 0 || slot >= MAX_DEVICES) {
+    return;
+  }
+
+  gPeerVoice[slot].env = 0.0f;
+  gPeerVoice[slot].phase1 = 0.0f;
+  gPeerVoice[slot].phase2 = 0.0f;
+  gPeerVoice[slot].lowpassState = 0.0f;
+  gPeerVoice[slot].voiceType = "";
+  gPeerVoice[slot].mixGain = 0.0f;
+}
+
+static float samplePeerVoice(
+  const String &voiceType,
+  float p1,
+  float p2
 ) {
 
-  const SoundPersonality& p =
-    soundForType(type);
+  if (voiceType == "BOUNCE") {
 
-  float root = personalityRootMidi();
-  float richness =
+    float tri = waveTriangle(p1);
+    float pluck =
+      (tri >= 0.0f ? 1.0f : -1.0f) *
+      powf(fabsf(tri), 0.55f);
+
+    float body = waveSine(p2) * 0.18f;
+
+    return pluck * 0.82f + body;
+  }
+
+  if (voiceType == "SHY") {
+
+    float s1 = waveSine(p1);
+    float s2 = waveTriangle(p2);
+
+    return s1 * 0.78f + s2 * 0.22f;
+  }
+
+  float flute = waveSine(p1);
+  float h2 = waveSine(p1 * 2.0f) * 0.14f;
+  float h3 = waveSine(p1 * 3.0f) * 0.05f;
+  float wing =
+    sinf(p1 * TWO_PI * 9.0f) * 0.08f;
+  float shimmer = waveSine(p2) * 0.10f;
+
+  return flute * 0.76f + h2 + h3 + wing + shimmer;
+}
+
+static void triggerPeerNote(
+  int slot,
+  String peerType,
+  float closeness,
+  unsigned long now
+) {
+
+  if (slot < 0 || slot >= MAX_DEVICES) {
+    return;
+  }
+
+  String voiceType = peerType;
+
+  if (
+    voiceType != "BOUNCE" &&
+    voiceType != "SHY" &&
+    voiceType != "MESSY"
+  ) {
+    return;
+  }
+
+  const SoundPersonality& voice =
+    soundForType(voiceType);
+
+  const float root = rootMidiForType(voiceType);
+
+  const float richness =
     richnessFromCloseness(closeness);
+
+  const bool sparse = richness < 0.32f;
+  const bool rich = richness > 0.50f;
+
+  const int arpIdx = devices[slot].arpTriggerIndex;
 
   int semi =
     phraseSemi(
-      p,
-      type,
-      gArpTriggerIndex,
-      richness
+      voice,
+      voiceType,
+      arpIdx,
+      richness,
+      false
     );
 
   int harmony =
     harmonySemi(
-      p,
-      type,
+      voice,
+      voiceType,
       semi,
-      gArpTriggerIndex,
+      arpIdx,
       richness
     );
 
-  if (type == "BOUNCE") {
+  PeerVoiceState &pv = gPeerVoice[slot];
 
-    freq1 =
-      midiToFreq(root + (float)semi);
+  pv.voiceType = voiceType;
+  pv.freq1 = midiToFreq(root + (float)semi);
 
-    freq2 =
-      richness > 0.38f
-        ? midiToFreq(root + (float)harmony)
-        : freq1 * 1.004f;
-
-    env =
-      p.env * (0.58f + richness * 0.42f);
-
-    envDecay = p.envDecay;
-
-    cutoff =
-      p.baseCutoff + closeness * p.closenessCutoff;
-
-    delayWet =
-      clampf(p.delayWet * (0.55f + richness * 0.72f), 0.06f, 0.34f);
+  if (sparse) {
+    pv.freq2 = pv.freq1;
+  }
+  else if (rich) {
+    pv.freq2 = midiToFreq(root + (float)harmony);
+  }
+  else if (voiceType == "BOUNCE") {
+    pv.freq2 = pv.freq1 * 1.004f;
+  }
+  else if (voiceType == "SHY") {
+    pv.freq2 = pv.freq1 * 1.002f;
+  }
+  else if (voiceType == "MESSY") {
+    pv.freq2 =
+      rich
+        ? pv.freq1 * 2.004f
+        : pv.freq1 * 1.010f;
+  }
+  else {
+    pv.freq2 = pv.freq1 * 1.004f;
   }
 
-  else if (type == "SHY") {
+  pv.env =
+    voice.env *
+    (sparse ? 0.38f : (0.42f + richness * 0.58f));
 
-    freq1 =
-      midiToFreq(root + (float)semi);
-
-    freq2 =
-      richness > 0.42f
-        ? midiToFreq(root + (float)harmony)
-        : freq1 * 1.001f;
-
-    env =
-      p.env * (0.54f + richness * 0.46f);
-
-    envDecay = p.envDecay;
-
-    cutoff =
-      p.baseCutoff + closeness * p.closenessCutoff;
-
-    delayWet =
-      clampf(p.delayWet * (0.62f + richness * 0.55f), 0.10f, 0.42f);
-  }
-
-  else if (type == "MESSY") {
-
-    freq1 =
-      midiToFreq(root + (float)semi);
-
-    freq2 =
-      richness > 0.36f
-        ? midiToFreq(root + (float)harmony)
-        : freq1 *
-          (0.98f + (int)(unitArp(gArpTriggerIndex, 31) * 20.0f) * 0.001f);
-
-    env =
-      p.env * (0.56f + richness * 0.44f);
-
-    envDecay = p.envDecay;
-
-    cutoff =
-      p.baseCutoff +
-      (closeness * 0.72f + unitArp(gArpTriggerIndex, 37) * 0.28f) *
-      p.closenessCutoff;
-
-    delayWet =
-      clampf(p.delayWet * (0.58f + richness * 0.68f), 0.08f, 0.42f);
-  }
-
-  delayFeedback =
-    clampf(p.delayFeedback * (0.62f + richness * 0.58f), 0.16f, 0.46f);
+  pv.envDecay = voice.envDecay;
+  pv.cutoff =
+    voice.baseCutoff + closeness * voice.closenessCutoff;
+  pv.mixGain =
+    sparse ? (0.22f + richness * 0.35f) : (0.30f + richness * 0.55f);
 
   float rhythm =
-    p.rhythm[gArpTriggerIndex % p.rhythmCount];
+    voice.rhythm[arpIdx % voice.rhythmCount];
 
   long humanize =
-    (long)((unitArp(gArpTriggerIndex, 41) - 0.5f) *
-      (type == "MESSY" ? 80.0f : 35.0f));
+    (long)((unitArp(arpIdx, 41) - 0.5f) *
+      (voiceType == "MESSY" ? 28.0f :
+       voiceType == "SHY" ? 90.0f : 40.0f));
 
-  float distanceRate =
-    1.62f - richness * 0.72f;
+  float distanceRate = 1.40f - richness * 0.70f;
 
-  long interval =
-    (long)(p.rateMs * rhythm * distanceRate) + humanize;
-
-  if (interval < 120) {
-    interval = 120;
+  if (voiceType == "SHY") {
+    distanceRate = 1.55f - richness * 0.28f;
+  }
+  else if (voiceType == "BOUNCE") {
+    distanceRate = 1.05f - richness * 0.45f;
+  }
+  else if (voiceType == "MESSY") {
+    distanceRate = 0.75f - richness * 0.48f;
   }
 
-  nextNoteTime =
-    millis() + (unsigned long)interval;
+  if (sparse) {
+    distanceRate *= 1.55f;
+  }
+  else if (rich) {
+    distanceRate *= 0.72f;
+  }
 
-  gArpTriggerIndex++;
+  long interval =
+    (long)((float)voice.rateMs * rhythm * distanceRate) + humanize;
+
+  long minInterval = 120;
+
+  if (voiceType == "SHY") {
+    minInterval = sparse ? 520 : 300;
+  }
+  else if (voiceType == "BOUNCE") {
+    minInterval = sparse ? 320 : 130;
+  }
+  else if (voiceType == "MESSY") {
+    minInterval = sparse ? 150 : 36;
+  }
+
+  if (interval < minInterval) {
+    interval = minInterval;
+  }
+
+  devices[slot].arpTriggerIndex++;
+  devices[slot].nextNoteMs = now + (unsigned long)interval;
+}
+
+static void rebuildAudiblePeerList() {
+
+  gAudibleCount = 0;
+
+  for (int i = 0; i < MAX_DEVICES; i++) {
+
+    if (!devices[i].active) {
+      continue;
+    }
+
+    if (
+      rssiToCloseness(devices[i].smoothRSSI) > 0.02f
+    ) {
+      gAudibleSlots[gAudibleCount] = i;
+      gAudibleCount++;
+    }
+  }
+}
+
+static int audibleListIndexOf(int slot) {
+
+  for (int k = 0; k < gAudibleCount; k++) {
+
+    if (gAudibleSlots[k] == slot) {
+      return k;
+    }
+  }
+
+  return -1;
+}
+
+static void advancePeerTurn(unsigned long now) {
+
+  rebuildAudiblePeerList();
+
+  if (gAudibleCount == 0) {
+
+    if (gFocusSlot >= 0) {
+      resetPeerVoice(gFocusSlot);
+    }
+
+    gFocusSlot = -1;
+    return;
+  }
+
+  const int focusIdx =
+    audibleListIndexOf(gFocusSlot);
+
+  const bool focusValid = focusIdx >= 0;
+
+  const bool turnExpired =
+    focusValid &&
+    (now - gFocusTurnStartMs >= PEER_AUDIO_TURN_MS);
+
+  if (focusValid && !turnExpired) {
+    return;
+  }
+
+  if (focusValid && turnExpired && gAudibleCount == 1) {
+    gFocusTurnStartMs = now;
+    return;
+  }
+
+  int nextListIdx = 0;
+
+  if (focusValid) {
+    nextListIdx = (focusIdx + 1) % gAudibleCount;
+  }
+
+  const int oldFocus = gFocusSlot;
+
+  gFocusSlot = gAudibleSlots[nextListIdx];
+  gFocusTurnStartMs = now;
+
+  if (oldFocus >= 0 && oldFocus != gFocusSlot) {
+
+    resetPeerVoice(oldFocus);
+    devices[oldFocus].nextNoteMs = 0;
+  }
+
+  for (int k = 0; k < gAudibleCount; k++) {
+
+    const int slot = gAudibleSlots[k];
+
+    if (slot != gFocusSlot) {
+      resetPeerVoice(slot);
+      devices[slot].nextNoteMs = 0;
+    }
+  }
+
+  devices[gFocusSlot].nextNoteMs = 0;
+}
+
+bool hasAudiblePeers() {
+
+  rebuildAudiblePeerList();
+
+  if (gAudibleCount > 0) {
+    return true;
+  }
+
+  if (
+    gFocusSlot >= 0 &&
+    gPeerVoice[gFocusSlot].env > 0.002f
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+void updatePeerAudio(unsigned long now) {
+
+  if (dockLatched) {
+    gFocusSlot = -1;
+    return;
+  }
+
+  advancePeerTurn(now);
+
+  if (gFocusSlot < 0) {
+    return;
+  }
+
+  const int i = gFocusSlot;
+
+  if (!devices[i].active) {
+    return;
+  }
+
+  const float closeness =
+    rssiToCloseness(devices[i].smoothRSSI);
+
+  if (closeness <= 0.02f) {
+    return;
+  }
+
+  if (
+    devices[i].nextNoteMs == 0 ||
+    now >= devices[i].nextNoteMs
+  ) {
+    triggerPeerNote(
+      i,
+      devices[i].type,
+      closeness,
+      now
+    );
+  }
 }
 
 // =====================================================
 // AUDIO RENDER
 // =====================================================
 
+static void renderSilence() {
+
+  static int16_t silence[BUFFER_SIZE * 2];
+
+  size_t bytesWritten;
+
+  i2s_write(
+    I2S_NUM_0,
+    silence,
+    sizeof(silence),
+    &bytesWritten,
+    portMAX_DELAY
+  );
+}
+
 void renderAudio() {
 
   static int16_t buffer[BUFFER_SIZE * 2];
 
+  if (dockLatched || !hasAudiblePeers()) {
+
+    gFocusSlot = -1;
+
+    for (int i = 0; i < MAX_DEVICES; i++) {
+      gPeerVoice[i].env = 0.0f;
+    }
+
+    env = 0.0f;
+    renderSilence();
+    return;
+  }
+
+  const int focus =
+    (gFocusSlot >= 0) ? gFocusSlot : -1;
+
   for (int i = 0; i < BUFFER_SIZE; i++) {
 
-    float dry = 0.0f;
+    float mix = 0.0f;
 
-    if (String(MY_NAME).indexOf("BOUNCE") >= 0) {
+    if (focus >= 0) {
 
-      float s1 = waveTriangle(phase1);
-      float s2 = waveSine(phase2);
+      PeerVoiceState &pv = gPeerVoice[focus];
 
-      dry = s1 * 0.62f + s2 * 0.38f;
+      if (pv.env >= 0.001f) {
+
+        float dry =
+          samplePeerVoice(
+            pv.voiceType,
+            pv.phase1,
+            pv.phase2
+          );
+
+        dry *= pv.env * pv.mixGain;
+
+        float alpha =
+          1.0f -
+          expf(-2.0f * PI * pv.cutoff / SAMPLE_RATE);
+
+        alpha = clampf(alpha, 0.001f, 0.95f);
+
+        pv.lowpassState +=
+          alpha * (dry - pv.lowpassState);
+
+        mix = pv.lowpassState;
+
+        advancePhase(pv.phase1, pv.freq1);
+        advancePhase(pv.phase2, pv.freq2);
+
+        pv.env *= pv.envDecay;
+      }
     }
-
-    else if (String(MY_NAME).indexOf("SHY") >= 0) {
-
-      float s1 = waveSine(phase1);
-      float s2 = waveTriangle(phase2);
-
-      dry = s1 * 0.88f + s2 * 0.12f;
-    }
-
-    else {
-
-      float s1 = waveSaw(phase1);
-      float s2 = waveTriangle(phase2);
-      float s3 = waveSine((phase1 + phase2) * 0.5f);
-
-      float n = waveNoise() * 0.035f;
-
-      dry = s1 * 0.26f + s2 * 0.36f + s3 * 0.28f + n;
-    }
-
-    dry *= env;
-
-    advancePhase(phase1, freq1);
-    advancePhase(phase2, freq2);
-
-    env *= envDecay;
-
-    float alpha =
-      1.0f -
-      expf(-2.0f * PI * cutoff / SAMPLE_RATE);
-
-    alpha = clampf(alpha, 0.001f, 0.95f);
-
-    lowpassState +=
-      alpha * (dry - lowpassState);
-
-    float filtered = lowpassState;
 
     float delayed =
       delayBuffer[delayIndex];
 
     float out =
-      filtered + delayed * delayWet;
+      mix + delayed * delayWet;
 
     delayBuffer[delayIndex] =
-      filtered +
-      delayed * delayFeedback;
+      mix + delayed * delayFeedback;
 
     delayIndex++;
 
@@ -615,7 +934,7 @@ void renderAudio() {
       delayIndex = 0;
     }
 
-    out = tanhf(out * 1.35f);
+    out = tanhf(out * 1.25f);
 
     int16_t sample =
       (int16_t)(

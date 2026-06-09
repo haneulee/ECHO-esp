@@ -7,16 +7,12 @@
 #include <math.h>
 
 // =====================================================
-// UNIQUE MODEL NAME
+// UNIQUE MODEL NAME  (exactly ONE line — must be #define)
 // =====================================================
 
 #define ECHO_UNIQUE_MODEL_NAME "ECHO_BOUNCE_001"
 // #define ECHO_UNIQUE_MODEL_NAME "ECHO_SHY_001"
 // #define ECHO_UNIQUE_MODEL_NAME "ECHO_MESSY_001"
-
-#ifndef ECHO_UNIQUE_MODEL_NAME
-#define ECHO_UNIQUE_MODEL_NAME "ECHO_BOUNCE_001"
-#endif
 
 #define MY_NAME ECHO_UNIQUE_MODEL_NAME
 
@@ -140,6 +136,10 @@
 // =====================================================
 
 #define MAX_DEVICES 10
+
+#ifndef PEER_AUDIO_TURN_MS
+#define PEER_AUDIO_TURN_MS 3000UL
+#endif
 
 // =====================================================
 // FILESYSTEM

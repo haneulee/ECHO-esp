@@ -55,6 +55,9 @@ struct TrackedDevice {
 
   unsigned long veryCloseStartMs;
   bool evolutionDoneForSession;
+
+  unsigned long nextNoteMs;
+  int arpTriggerIndex;
 };
 
 extern TrackedDevice devices[MAX_DEVICES];
