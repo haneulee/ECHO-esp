@@ -35,3 +35,7 @@ void cleanupDevices();
 // =====================================================
 
 void setupBLE();
+
+void stopBLEForSleep();
+
+void resumeBLEAfterSleep();

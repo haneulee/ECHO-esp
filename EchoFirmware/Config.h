@@ -31,7 +31,7 @@
 // =====================================================
 
 #ifndef REED_PIN
-#define REED_PIN 10
+#define REED_PIN 1
 #endif
 
 #ifndef REED_DOCK_ACTIVE_LOW
@@ -74,9 +74,33 @@
 #define DOCK_STATION_RETRY_MS 2500UL
 #endif
 
-#define I2S_BCLK  4
+#define I2S_BCLK  6
 #define I2S_LRCLK 5
-#define I2S_DOUT  6
+#define I2S_DOUT  7
+
+#ifndef BUTTON_PIN
+#define BUTTON_PIN 2
+#endif
+
+#ifndef BUTTON_ACTIVE_LOW
+#define BUTTON_ACTIVE_LOW 1
+#endif
+
+#ifndef BUTTON_DEBOUNCE_MS
+#define BUTTON_DEBOUNCE_MS 80UL
+#endif
+
+#ifndef LED_RING_PIN
+#define LED_RING_PIN 4
+#endif
+
+#ifndef LED_RING_COUNT
+#define LED_RING_COUNT 8
+#endif
+
+#ifndef LED_RING_BRIGHTNESS
+#define LED_RING_BRIGHTNESS 48
+#endif
 
 // =====================================================
 // AUDIO

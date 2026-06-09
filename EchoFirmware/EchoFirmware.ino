@@ -4,6 +4,8 @@
 #include "AudioSynth.h"
 #include "BleEcho.h"
 #include "DockUpload.h"
+#include "EchoLed.h"
+#include "EchoSleep.h"
 #include "EchoState.h"
 #include "EncounterLog.h"
 #include "ReedDock.h"
@@ -26,6 +28,9 @@ void setup() {
   Serial.println(MY_NAME);
 
   pinMode(REED_PIN, INPUT_PULLUP);
+
+  setupSleepButton();
+  setupEchoLed();
 
   randomSeed(esp_random());
 
@@ -58,9 +63,15 @@ void setup() {
 
 void loop() {
 
+  if (processSleepMode()) {
+    return;
+  }
+
   updateDockLogic();
 
   if (dockLatched) {
+
+    updateEchoLed(millis());
 
     renderAudio();
 
@@ -170,6 +181,8 @@ void loop() {
   if (now - lastDebugPrint > 1000) {
     lastDebugPrint = now;
   }
+
+  updateEchoLed(now);
 
   renderAudio();
 }

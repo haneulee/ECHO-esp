@@ -333,3 +333,41 @@ void setupBLE() {
 
   Serial.println("Async NimBLE scan started");
 }
+
+// =====================================================
+// SLEEP SUSPEND / RESUME
+// =====================================================
+
+void stopBLEForSleep() {
+
+  if (pScan != nullptr) {
+    pScan->stop();
+    pScan->clearResults();
+  }
+
+  if (pAdvertising != nullptr) {
+    pAdvertising->stop();
+  }
+
+  NimBLEDevice::deinit(true);
+
+  pScan = nullptr;
+  pAdvertising = nullptr;
+}
+
+void resumeBLEAfterSleep() {
+
+  setupBLE();
+
+  if (dockLatched) {
+
+    if (pScan != nullptr) {
+      pScan->stop();
+      pScan->clearResults();
+    }
+  }
+
+  else {
+    restoreEchoBlePeerScan("wake");
+  }
+}
