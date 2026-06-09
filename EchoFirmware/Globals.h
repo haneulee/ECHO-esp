@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Config.h"
+#include "SonicAdvert.h"
 
 // =====================================================
 // AUDIO GLOBALS
@@ -58,6 +59,9 @@ struct TrackedDevice {
 
   unsigned long nextNoteMs;
   int arpTriggerIndex;
+
+  unsigned long seenAtMs;
+  PeerSonicSnapshot peerSonic;
 };
 
 extern TrackedDevice devices[MAX_DEVICES];

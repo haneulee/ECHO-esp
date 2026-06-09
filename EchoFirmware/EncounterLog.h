@@ -21,4 +21,14 @@ bool hasEvolutionData();
 
 void appendEvolutionJsonl(const String& jsonLine);
 
+bool hasEncounterSonicData();
+
+void logEncounterSonicSnapshot(
+  String target,
+  String type,
+  unsigned long seenAtMs,
+  unsigned long lostAtMs,
+  const PeerSonicSnapshot &sonic
+);
+
 bool hasDockUploadPayload();

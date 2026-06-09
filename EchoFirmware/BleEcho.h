@@ -1,6 +1,6 @@
 #pragma once
 
-#include "EchoState.h"
+#include "Globals.h"
 
 // =====================================================
 // DEVICE HELPERS

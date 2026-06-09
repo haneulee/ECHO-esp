@@ -488,7 +488,7 @@ void initEchoMelodyState() {
 
   else {
 
-    int m[] = {0, 1, 3, 6, 10, 8, 5, 2};
+    int m[] = {0, 2, 4, 7, 9, 11, 7, 4};
 
     for (int k = 0; k < MELODY_SLOTS; k++) {
       gMelodySemi[k] = m[k];

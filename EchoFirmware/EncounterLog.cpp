@@ -1,4 +1,5 @@
 #include "EncounterLog.h"
+#include "SonicAdvert.h"
 
 // =====================================================
 // FILESYSTEM GLOBAL
@@ -123,6 +124,81 @@ void appendEvolutionJsonl(
 // =====================================================
 // DOCK PAYLOAD EXISTS
 // =====================================================
+
+bool hasEncounterSonicData() {
+
+  if (!LittleFS.exists("/encounter_sonic.jsonl")) {
+    return false;
+  }
+
+  File f = LittleFS.open("/encounter_sonic.jsonl", "r");
+
+  if (!f) {
+    return false;
+  }
+
+  size_t size = f.size();
+
+  f.close();
+
+  return size > 0;
+}
+
+void logEncounterSonicSnapshot(
+  String target,
+  String type,
+  unsigned long seenAtMs,
+  unsigned long lostAtMs,
+  const PeerSonicSnapshot &sonic
+) {
+
+  File f =
+    LittleFS.open("/encounter_sonic.jsonl", "a");
+
+  if (!f) {
+    return;
+  }
+
+  String j = "{";
+
+  j += "\"v\":1,";
+  j += "\"target\":\"";
+  j += target;
+  String typeKey = type;
+  typeKey.toLowerCase();
+
+  j += "\",\"otherEchoType\":\"";
+  j += typeKey;
+  j += "\",\"seenAtMs\":";
+  j += String(seenAtMs);
+  j += ",\"lostAtMs\":";
+  j += String(lostAtMs);
+  j += ",\"sonicSource\":\"";
+  j += sonic.fromBle ? "ble_adv" : "factory_default";
+  j += "\",\"profileSnapshot\":{\"melodySemi\":[";
+
+  for (int k = 0; k < MELODY_SLOTS; k++) {
+
+    j += String(sonic.melodySemi[k]);
+
+    if (k < MELODY_SLOTS - 1) {
+      j += ",";
+    }
+  }
+
+  j += "],\"brightness\":";
+  j += String(sonic.brightness, 2);
+  j += ",\"calmness\":";
+  j += String(sonic.calmness, 2);
+  j += ",\"densityBias\":";
+  j += String(sonic.densityBias, 2);
+  j += "}}";
+
+  f.print(j);
+  f.print("\n");
+
+  f.close();
+}
 
 bool hasDockUploadPayload() {
 

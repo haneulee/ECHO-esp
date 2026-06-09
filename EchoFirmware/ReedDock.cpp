@@ -1,4 +1,7 @@
 #include "ReedDock.h"
+#include "AudioSynth.h"
+#include "EchoState.h"
+#include "EncounterLog.h"
 
 // =====================================================
 // DOCK GLOBALS

@@ -1,5 +1,7 @@
 #include "BleEcho.h"
 #include "AudioSynth.h"
+#include "EncounterLog.h"
+#include "SonicAdvert.h"
 
 // =====================================================
 // BLE GLOBALS
@@ -61,6 +63,9 @@ void clearDevice(int i) {
   devices[i].evolutionDoneForSession = false;
   devices[i].nextNoteMs = 0;
   devices[i].arpTriggerIndex = 0;
+  devices[i].seenAtMs = 0;
+  devices[i].peerSonic.valid = false;
+  devices[i].peerSonic.fromBle = false;
 
   resetPeerVoice(i);
 }
@@ -195,6 +200,21 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
     int idx =
       findDevice(name);
 
+    PeerSonicSnapshot parsed;
+    bool hasParsed = false;
+
+    if (advertisedDevice->haveManufacturerData()) {
+
+      std::string mfg =
+        advertisedDevice->getManufacturerData();
+
+      hasParsed = parseSonicManufacturerData(
+        reinterpret_cast<const uint8_t *>(mfg.data()),
+        mfg.length(),
+        parsed
+      );
+    }
+
     if (idx >= 0) {
 
       devices[idx].rssi = rssi;
@@ -205,6 +225,10 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
 
       devices[idx].lastSeen =
         millis();
+
+      if (hasParsed) {
+        devices[idx].peerSonic = parsed;
+      }
 
       return;
     }
@@ -227,6 +251,14 @@ class MyScanCallbacks : public NimBLEScanCallbacks {
     devices[freeIdx].evolutionDoneForSession = false;
     devices[freeIdx].nextNoteMs = 0;
     devices[freeIdx].arpTriggerIndex = 0;
+    devices[freeIdx].seenAtMs = millis();
+
+    if (hasParsed) {
+      devices[freeIdx].peerSonic = parsed;
+    }
+    else {
+      factorySonicForType(type, devices[freeIdx].peerSonic);
+    }
 
     Serial.print("NEW ECHO: ");
     Serial.print(name);
@@ -291,6 +323,20 @@ void cleanupDevices() {
         0.0f
       );
 
+      PeerSonicSnapshot sonic = devices[i].peerSonic;
+
+      if (!sonic.valid) {
+        factorySonicForType(devices[i].type, sonic);
+      }
+
+      logEncounterSonicSnapshot(
+        devices[i].name,
+        devices[i].type,
+        devices[i].seenAtMs,
+        now,
+        sonic
+      );
+
       clearDevice(i);
     }
   }
@@ -313,9 +359,7 @@ void setupBLE() {
 
   advData.setName(MY_NAME);
 
-  pAdvertising->setAdvertisementData(
-    advData
-  );
+  refreshSonicAdvertising();
 
   pAdvertising->start();
 

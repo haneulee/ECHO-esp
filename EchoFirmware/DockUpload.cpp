@@ -1,4 +1,6 @@
 #include "DockUpload.h"
+#include "EchoState.h"
+#include "EncounterLog.h"
 
 // =====================================================
 // BLOCKING STATION SCAN GUARD
@@ -253,6 +255,37 @@ bool tryUploadMemoryToStationOnce() {
       }
     }
 
+    if (hasEncounterSonicData()) {
+
+      File fs =
+        LittleFS.open("/encounter_sonic.jsonl", "r");
+
+      if (fs) {
+
+        while (fs.available()) {
+
+          String line =
+            fs.readStringUntil('\n');
+
+          line.trim();
+
+          if (line.length() == 0) {
+            continue;
+          }
+
+          String out =
+            String("ECHO_ENCOUNTER_SONIC_JSON:") +
+            line;
+
+          ch->writeValue(out.c_str());
+
+          delay(30);
+        }
+
+        fs.close();
+      }
+    }
+
     if (hasEvo) {
 
       File fe =
@@ -303,6 +336,13 @@ bool tryUploadMemoryToStationOnce() {
       LittleFS.remove("/encounter.csv");
 
       Serial.println("CSV cleared");
+    }
+
+    if (hasEncounterSonicData()) {
+
+      LittleFS.remove("/encounter_sonic.jsonl");
+
+      Serial.println("Encounter sonic log cleared");
     }
 
     if (hasEvo) {

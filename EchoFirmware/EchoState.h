@@ -1,7 +1,6 @@
 #pragma once
 
-#include "EncounterLog.h"
-#include "AudioSynth.h"
+#include <Arduino.h>
 
 // =====================================================
 // ECHO STATE

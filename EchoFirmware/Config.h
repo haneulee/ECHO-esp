@@ -7,12 +7,21 @@
 #include <math.h>
 
 // =====================================================
-// UNIQUE MODEL NAME  (exactly ONE line — must be #define)
+// UNIQUE MODEL NAME — change ECHO_MODEL_SELECT only
+//   1 = ECHO_BOUNCE_001   2 = ECHO_SHY_001   3 = ECHO_MESSY_001
 // =====================================================
 
+#define ECHO_MODEL_SELECT 1
+
+#if ECHO_MODEL_SELECT == 1
 #define ECHO_UNIQUE_MODEL_NAME "ECHO_BOUNCE_001"
-// #define ECHO_UNIQUE_MODEL_NAME "ECHO_SHY_001"
-// #define ECHO_UNIQUE_MODEL_NAME "ECHO_MESSY_001"
+#elif ECHO_MODEL_SELECT == 2
+#define ECHO_UNIQUE_MODEL_NAME "ECHO_SHY_001"
+#elif ECHO_MODEL_SELECT == 3
+#define ECHO_UNIQUE_MODEL_NAME "ECHO_MESSY_001"
+#else
+#error "Config.h: set ECHO_MODEL_SELECT to 1 (BOUNCE), 2 (SHY), or 3 (MESSY)"
+#endif
 
 #define MY_NAME ECHO_UNIQUE_MODEL_NAME
 

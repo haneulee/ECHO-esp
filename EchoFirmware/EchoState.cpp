@@ -1,4 +1,8 @@
 #include "EchoState.h"
+#include "EncounterLog.h"
+#include "Globals.h"
+#include "SonicAdvert.h"
+#include "Utils.h"
 
 // =====================================================
 // MODEL TYPE
@@ -145,6 +149,8 @@ bool saveEchoStateToFs() {
   f.println(millis());
 
   f.close();
+
+  refreshSonicAdvertising();
 
   return true;
 }
