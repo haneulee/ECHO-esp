@@ -3,10 +3,6 @@
 #include "EchoState.h"
 #include "EncounterLog.h"
 
-// =====================================================
-// DOCK GLOBALS
-// =====================================================
-
 bool dockLatched = false;
 bool uploadCompletedThisDock = false;
 
@@ -201,6 +197,8 @@ void updateDockLogic() {
 
     clearAllTrackedEchoPeers();
 
+    resetPeerAudioFocus();
+
     restoreEchoBlePeerScan("undock");
 
     Serial.println(
@@ -225,10 +223,16 @@ void updateDockLogic() {
 
     clearAllTrackedEchoPeers();
 
+    resetPeerAudioFocus();
+
     if (pScan != nullptr) {
 
       pScan->stop();
       pScan->clearResults();
+    }
+
+    if (pAdvertising != nullptr) {
+      pAdvertising->stop();
     }
 
     saveEchoStateToFs();

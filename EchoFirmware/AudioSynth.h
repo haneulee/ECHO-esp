@@ -15,6 +15,9 @@ bool hasAudiblePeers();
 
 void resetPeerVoice(int slot);
 
+// Clear peer-audio scheduler after dock/undock transitions.
+void resetPeerAudioFocus();
+
 void renderAudio();
 
 // =====================================================

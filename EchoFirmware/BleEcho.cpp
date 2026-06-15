@@ -90,6 +90,8 @@ void resumeEchoAdvertising() {
     return;
   }
 
+  refreshSonicAdvertising();
+
   delay(30);
 
   pAdvertising->start();
@@ -103,19 +105,11 @@ void restoreEchoBlePeerScan(
     return;
   }
 
-  pScan->stop();
+  const bool undocking =
+    (reason != nullptr) &&
+    (strcmp(reason, "undock") == 0);
 
-  delay(120);
-
-  pScan->clearResults();
-
-  if (
-    dockLatched &&
-    (
-      reason == nullptr ||
-      strcmp(reason, "undock") != 0
-    )
-  ) {
+  if (dockLatched && !undocking) {
 
     if (reason != nullptr) {
 
@@ -126,6 +120,22 @@ void restoreEchoBlePeerScan(
     return;
   }
 
+  pScan->stop();
+
+  if (pAdvertising != nullptr) {
+    pAdvertising->stop();
+  }
+
+  delay(undocking ? 220 : 120);
+
+  pScan->clearResults();
+
+  refreshSonicAdvertising();
+
+  if (pAdvertising != nullptr) {
+    pAdvertising->start();
+  }
+
   pScan->setActiveScan(false);
 
   pScan->setInterval(45);
@@ -134,8 +144,6 @@ void restoreEchoBlePeerScan(
   pScan->setDuplicateFilter(0);
 
   pScan->start(0, false, true);
-
-  resumeEchoAdvertising();
 
   if (reason != nullptr) {
 

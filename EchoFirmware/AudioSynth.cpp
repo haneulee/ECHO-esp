@@ -518,6 +518,19 @@ void resetPeerVoice(int slot) {
   gPeerVoice[slot].mixGain = 0.0f;
 }
 
+void resetPeerAudioFocus() {
+
+  gFocusSlot = -1;
+  gFocusTurnStartMs = 0;
+  gAudibleCount = 0;
+  env = 0.0f;
+
+  for (int i = 0; i < MAX_DEVICES; i++) {
+    resetPeerVoice(i);
+    devices[i].nextNoteMs = 0;
+  }
+}
+
 static float samplePeerVoice(
   const String &voiceType,
   float p1,
